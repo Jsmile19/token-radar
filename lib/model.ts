@@ -153,14 +153,98 @@ export function ageDays(asOf: string, listedAt: string | null): number | null {
   return Number.isFinite(a) && Number.isFinite(b) ? Math.max(0, Math.floor((a - b) / DAY_MS)) : null;
 }
 
+interface ObservationQuality {
+  tvl_usd: number;
+  change_7d: number | null;
+  age_days: number | null;
+  mcap_usd: number | null;
+}
+
+export interface ConfidenceBreakdown {
+  completeness: number;
+  depth: number;
+  instability: number;
+  limitedHistory: number;
+  score: number;
+}
+
+/** Evidence quality, not the probability that a launch or distribution will happen. */
+export function confidenceBreakdownFor(observation: ObservationQuality): ConfidenceBreakdown {
+  const tvlPresent = Number.isFinite(observation.tvl_usd) && observation.tvl_usd > 0;
+  const growthPresent = observation.change_7d !== null && Number.isFinite(observation.change_7d);
+  const historyPresent = observation.age_days !== null &&
+    Number.isFinite(observation.age_days) && observation.age_days >= 0;
+  const completeness = 30 + (tvlPresent ? 20 : 0) +
+    (growthPresent ? 20 : 0) + (historyPresent ? 20 : 0);
+  const depth = tvlPresent ?
+    Math.min(10, Math.log10(1 + observation.tvl_usd / 5_000_000) * 5) : 0;
+  const instability = growthPresent ?
+    Math.min(20, Math.abs(observation.change_7d!) / 4) : 0;
+  const limitedHistory = historyPresent && observation.age_days! < 90 ? 10 : 0;
+  const score = Math.max(0, Math.min(100,
+    Math.round(completeness + depth - instability - limitedHistory)));
+  return { completeness, depth, instability, limitedHistory, score };
+}
+
+export function confidenceFor(observation: ObservationQuality): number {
+  return confidenceBreakdownFor(observation).score;
+}
+
+/** Mechanical flags from sealed observations; absence of a flag is not a safety assessment. */
+export function riskFlagsFor(observation: ObservationQuality): string[] {
+  const indicators: string[] = [];
+  if (!Number.isFinite(observation.tvl_usd) || observation.tvl_usd <= 0 ||
+      observation.change_7d === null || !Number.isFinite(observation.change_7d) ||
+      observation.age_days === null || !Number.isFinite(observation.age_days)) {
+    indicators.push('data-tipis');
+  }
+  if (observation.change_7d !== null && observation.change_7d <= -20) {
+    indicators.push('tvl-turun-tajam');
+  }
+  if (observation.age_days !== null && observation.age_days < 90) {
+    indicators.push('baru-terdaftar');
+  }
+  if (observation.change_7d !== null && Math.abs(observation.change_7d) >= 50) {
+    indicators.push('tvl-bergejolak');
+  }
+  if (observation.mcap_usd !== null && observation.mcap_usd > 0) {
+    indicators.push('kapitalisasi-tercatat');
+  }
+  return indicators;
+}
+
+function normalizedWeeklyObservation(protocol: SnapshotProtocol, settings: ModelConstants): number {
+  return Math.min(settings.growth_cap, Math.max(settings.growth_floor, protocol.change_7d ?? 0));
+}
+
+function tractionAdjustment(weeklyPercentage: number, settings: ModelConstants): number {
+  return 1 + weeklyPercentage / 100 * settings.growth_weight;
+}
+
+function operatingHistoryAdjustment(observedDays: number | null, settings: ModelConstants): number {
+  const effectiveDays = observedDays ?? settings.unknown_age_days;
+  return settings.maturity_floor +
+    Math.min(Math.max(effectiveDays, 0), settings.maturity_days) /
+    settings.maturity_days * settings.maturity_range;
+}
+
+function roundedLaunchEstimate(
+  observedTvl: number,
+  settings: ModelConstants,
+  tractionFactor: number,
+  historyFactor: number,
+): number {
+  return Math.max(1, Math.round(
+    observedTvl * settings.benchmark_multiple * tractionFactor * historyFactor,
+  ));
+}
+
 function score(p: SnapshotProtocol, snapshot: Snapshot, model: ModelConstants) {
   const age = ageDays(snapshot.as_of, p.listed_at);
-  const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, p.change_7d ?? 0));
-  const growthMult = 1 + growthPct / 100 * model.growth_weight;
-  const ageForModel = age ?? model.unknown_age_days;
-  const maturityMult = model.maturity_floor +
-    Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days * model.maturity_range;
-  const implied = Math.max(1, Math.round(p.tvl_usd * model.benchmark_multiple * growthMult * maturityMult));
+  const growthPct = normalizedWeeklyObservation(p, model);
+  const growthMult = tractionAdjustment(growthPct, model);
+  const maturityMult = operatingHistoryAdjustment(age, model);
+  const implied = roundedLaunchEstimate(p.tvl_usd, model, growthMult, maturityMult);
   return { age, growthPct, growthMult, maturityMult, implied };
 }
 

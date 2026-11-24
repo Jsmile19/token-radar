@@ -1,0 +1,86 @@
+.radar-statistics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 20px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.radar-stat {
+  display: grid;
+  gap: 5px;
+  min-height: 82px;
+  padding: 13px 15px;
+  background: var(--panel);
+}
+
+.radar-stat-label {
+  color: var(--muted);
+  font: 9px var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.radar-stat strong {
+  color: var(--ink);
+  font: 600 20px/1.1 var(--mono);
+}
+
+.radar-stat small { color: var(--muted); font-size: 10px; }
+.sort-explanation { margin: 0 0 8px; color: var(--muted); font-size: 10px; }
+
+.export-selection {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #55715b;
+  background: #20352d;
+  color: var(--mint);
+  font: 10px var(--mono);
+  white-space: nowrap;
+}
+
+.export-selection:hover { background: #2a4439; }
+
+.evidence-panel {
+  display: grid;
+  gap: 9px;
+  margin-top: 20px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  background: #111b20;
+}
+
+.evidence-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  font: 10px var(--mono);
+}
+
+.evidence-heading b { color: var(--mint); font-size: 13px; }
+.confidence-track { height: 6px; overflow: hidden; border-radius: 5px; background: #34443e; }
+.confidence-track span { display: block; height: 100%; background: var(--mint); }
+.evidence-caption { color: var(--muted); font-size: 9px; }
+.risk-flags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+
+.risk-flag {
+  padding: 3px 7px;
+  border: 1px solid #695044;
+  background: #30251f;
+  color: #e7b08a;
+  font: 9px var(--mono);
+}
+
+.risk-flag.quiet { border-color: var(--line); background: transparent; color: var(--muted); }
+.farm-checklist { margin-top: 3px; }
+.checklist-step { display: grid; grid-template-columns: 20px 1fr; align-items: start; gap: 8px; }
+.checklist-step input { margin: 3px 0 0; accent-color: var(--mint); }
+.checklist-step label { cursor: pointer; }
+.checklist-step input:checked + label b { color: var(--muted); text-decoration: line-through; }
+
+@media (max-width: 700px) {
+  .radar-statistics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .toolbar .export-selection { flex: 1 1 100%; }
+}

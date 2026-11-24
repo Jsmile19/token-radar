@@ -3,6 +3,8 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
 import { buildDossier } from './vendor/makefun-board.ts';
+import { confidenceFor, riskFlagsFor } from './lib/model.ts';
+import type { BoardRow } from './lib/model.ts';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const TEXT_MAX_BYTES = 65_536;
@@ -26,6 +28,7 @@ if (!existsSync(inputPath)) {
 const out = resolve(arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? root));
 const snapshot = parseSnapshot(readFileSync(inputPath, 'utf8'));
 const { board, radar } = buildRadar(snapshot);
+validateDisplayInputs(board);
 const issue = boardIssue(board, snapshot);
 if (issue) {
   process.stderr.write('token radar: board check failed: ' + issue + '\n');
@@ -88,4 +91,67 @@ process.stdout.write(
   ' tokenless candidates ranked; ' + snapshot.watchlist.length + ' watchlist protocols covered; ' +
   'peer multiple ' + radar.model.benchmark_multiple + ' from ' + radar.peer_sample_size + ' token-bearing records\n' +
   'token radar: output written to ' + out + '\n',
+);
+
+function validateDisplayInputs(entries: BoardRow[]): void {
+  const violations: string[] = [];
+  for (const entry of entries) {
+    const prefix = entry.slug + ': ';
+    if (!['WATCHLIST', 'EARLY'].includes(entry.tier)) {
+      violations.push(prefix + 'unrecognized display tier');
+    }
+    if (!Array.isArray(entry.chains) ||
+        entry.chains.some((network) => typeof network !== 'string' || network.trim().length === 0)) {
+      violations.push(prefix + 'chains must contain nonempty labels');
+    }
+    if (!Number.isFinite(entry.tvl_usd) || entry.tvl_usd <= 0) {
+      violations.push(prefix + 'TVL is not a positive finite number');
+    }
+    if (entry.change_7d !== null && !Number.isFinite(entry.change_7d)) {
+      violations.push(prefix + 'seven-day observation is not finite');
+    }
+    if (entry.age_days !== null &&
+        (!Number.isSafeInteger(entry.age_days) || entry.age_days < 0)) {
+      violations.push(prefix + 'listing age is not a nonnegative integer');
+    }
+    if (entry.mcap_usd !== null &&
+        (!Number.isFinite(entry.mcap_usd) || entry.mcap_usd < 0)) {
+      violations.push(prefix + 'recorded capitalization is invalid');
+    }
+    const evidenceScore = confidenceFor(entry);
+    if (!Number.isInteger(evidenceScore) || evidenceScore < 0 || evidenceScore > 100) {
+      violations.push(prefix + 'confidence calculation exceeded its bounds');
+    }
+    if (riskFlagsFor(entry).some((label) => typeof label !== 'string' || !label)) {
+      violations.push(prefix + 'risk labels must be nonempty strings');
+    }
+  }
+  if (violations.length) {
+    throw new Error('Dashboard input validation failed: ' + violations.join('; '));
+  }
+}
+
+function summarizeRankedEntries(entries: BoardRow[]) {
+  const counts = { WATCHLIST: 0, EARLY: 0 };
+  let grossEstimatedValue = 0;
+  const observedMultiples: number[] = [];
+  for (const entry of entries) {
+    counts[entry.tier] += 1;
+    grossEstimatedValue += entry.implied_value_usd;
+    observedMultiples.push(entry.implied_value_usd / entry.tvl_usd);
+  }
+  observedMultiples.sort((left, right) => left - right);
+  const midpoint = Math.floor(observedMultiples.length / 2);
+  const medianMultiple = observedMultiples.length === 0 ? 0 :
+    observedMultiples.length % 2 === 1 ? observedMultiples[midpoint]! :
+    (observedMultiples[midpoint - 1]! + observedMultiples[midpoint]!) / 2;
+  return { counts, grossEstimatedValue, medianMultiple };
+}
+
+const rankedSummary = summarizeRankedEntries(board);
+process.stdout.write(
+  'radar summary: watchlist=' + rankedSummary.counts.WATCHLIST +
+  '; early=' + rankedSummary.counts.EARLY +
+  '; total implied USD=' + rankedSummary.grossEstimatedValue +
+  '; median implied/TVL=' + rankedSummary.medianMultiple.toFixed(6) + '\n',
 );

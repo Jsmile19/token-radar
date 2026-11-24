@@ -1,5 +1,19 @@
 # Token Launch Radar
 
+## Methodology
+
+The board's implied value is calculated from TVL, a median token market-cap-to-TVL benchmark observed in the same sealed snapshot, seven-day TVL change, and days since first listing. The median is calculated from records with a positive token market cap and TVL, after excluding ratios outside 0.005–8; it is clamped to 0.03–1.5. Growth is clamped to −50% through +80%. Operating history contributes a maturity adjustment capped at 1,095 days. Missing growth is treated as zero, and an unknown listing date uses the documented 365-day default. This produces a consistent comparison, not a forecast of launch timing or token price.
+
+The detail view's confidence score (0–100) describes snapshot evidence quality. It rewards the presence of TVL, seven-day change, and listing age plus a modest TVL-depth component; it deducts for large weekly movement and very recent listings. It is not a probability of a token launch, an airdrop, or a return. Risk flags are mechanical labels from those same observations: thin data, sharp TVL decline, recent listing, unusually volatile TVL, or a recorded market capitalization. The flags identify facts to inspect; they do not certify safety.
+
+## Dashboard guide
+
+Use the search box for protocol, chain, or category. The category and chain menus narrow the board together. Click the implied value, TVL, or age headings to set sort priority; Shift-click another heading to add up to two tie-break columns. Export CSV downloads the currently visible ranking with its farm plans. Select a row to open its model breakdown and checklist. Checklist progress is stored in this browser's local storage for that protocol. The market-context section keeps token-bearing protocols separate from the ranked candidates.
+
+## Limitations
+
+All inputs are one sealed DefiLlama snapshot, so values can become stale and unreported changes remain unknown. Listing date is only a proxy for operating history; it does not prove how long a protocol has operated or whether it plans a token. The snapshot does not include fees, revenue, investor allocations, token supply, emissions, app eligibility, or a complete parent-product graph. TVL can be borrowed, concentrated, or incentive-driven. Farm steps are generic starting points, not personalized financial advice: confirm contract addresses, supported assets, fees, withdrawal terms, and official eligibility rules before transacting. Capital can be lost, and no token or reward is promised.
+
 [![make.fun bounty](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01)
 [![Live rank](https://make.fun/badge/token-radar-01/Jsmile19/token-launch-radar/rank.svg)](https://make.fun/bounty/token-radar-01)
 [![Live reward](https://make.fun/badge/token-radar-01/Jsmile19/token-launch-radar/reward.svg)](https://make.fun/bounty/token-radar-01)

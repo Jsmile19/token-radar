@@ -8,6 +8,8 @@
   if (!DATA) return;
   var app = document.getElementById('board');
   var state = { q: '', category: 'all', tab: 'pre-token', sort: 'implied', dir: -1, selected: null };
+  state.chain = '';
+  state.ordering = [{ column: 'implied', direction: -1 }];
 
   var usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
   function fmtUsd(n) {
@@ -114,9 +116,11 @@
     if (params.get('q')) state.q = params.get('q');
     if (params.get('p')) state.selected = params.get('p');
     if (params.get('category')) state.category = params.get('category');
+    state.chain = params.get('chain') || '';
   }
   function writeHash() {
     var params = new URLSearchParams();
+    if (state.chain) params.set('chain', state.chain);
     if (state.q) params.set('q', state.q);
     if (state.category !== 'all') params.set('category', state.category);
     if (state.selected) params.set('p', state.selected);
@@ -128,25 +132,174 @@
   function rows() {
     var q = state.q.trim().toLowerCase();
     return DATA.rows.filter(function (r) {
+      if (state.chain && (r.chains || []).indexOf(state.chain) < 0) return false;
       if (state.category !== 'all' && r.category !== state.category) return false;
       if (!q) return true;
       var hay = [r.name, r.slug, r.category, (r.chains || []).join(' ')].join(' ').toLowerCase();
       return hay.indexOf(q) >= 0;
     });
   }
+  function valueForOrdering(record, column) {
+    if (column === 'name') return record.name.toLowerCase();
+    if (column === 'tvl') return record.tvl_usd;
+    if (column === 'age') return record.age_days;
+    if (column === 'growth') return record.change_7d;
+    return record.implied_value_usd;
+  }
+
+  function comparePresentValues(first, second, direction) {
+    var firstMissing = first === null || first === undefined;
+    var secondMissing = second === null || second === undefined;
+    if (firstMissing && secondMissing) return 0;
+    if (firstMissing) return 1;
+    if (secondMissing) return -1;
+    if (first === second) return 0;
+    return (first < second ? -1 : 1) * direction;
+  }
+
   function sortedRows(list) {
-    var key = state.sort;
-    return list.slice().sort(function (a, b) {
-      var av, bv;
-      if (key === 'name') { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
-      else if (key === 'tvl') { av = a.tvl_usd; bv = b.tvl_usd; }
-      else if (key === 'growth') { av = a.change_7d === null ? -Infinity : a.change_7d; bv = b.change_7d === null ? -Infinity : b.change_7d; }
-      else if (key === 'age') { av = a.age_days === null ? Infinity : a.age_days; bv = b.age_days === null ? Infinity : b.age_days; }
-      else { av = a.implied_value_usd; bv = b.implied_value_usd; }
-      if (av < bv) return -state.dir;
-      if (av > bv) return state.dir;
-      return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
+    return list.slice().sort(function (first, second) {
+      for (var position = 0; position < state.ordering.length; position++) {
+        var rule = state.ordering[position];
+        var comparison = comparePresentValues(
+          valueForOrdering(first, rule.column),
+          valueForOrdering(second, rule.column),
+          rule.direction
+        );
+        if (comparison) return comparison;
+      }
+      return first.slug < second.slug ? -1 : first.slug > second.slug ? 1 : 0;
     });
+  }
+
+  function updateOrdering(column, extend) {
+    var existingRule = state.ordering.filter(function (rule) {
+      return rule.column === column;
+    })[0];
+    var nextDirection = existingRule ? -existingRule.direction : -1;
+    var replacement = { column: column, direction: nextDirection };
+    var retainedRules = state.ordering.filter(function (rule) {
+      return rule.column !== column;
+    });
+    if (extend) {
+      state.ordering = state.ordering.map(function (rule) {
+        return rule.column === column ? replacement : rule;
+      });
+      if (!existingRule) state.ordering.push(replacement);
+    } else {
+      state.ordering = [replacement].concat(retainedRules).slice(0, 3);
+    }
+    state.sort = state.ordering[0].column;
+    state.dir = state.ordering[0].direction;
+  }
+
+  function orderingDescription() {
+    var captions = { implied: 'implied value', tvl: 'TVL', age: 'age', growth: 'growth', name: 'name' };
+    return state.ordering.map(function (rule, position) {
+      return (position + 1) + '. ' + captions[rule.column] +
+        (rule.direction < 0 ? ' descending' : ' ascending');
+    }).join(' → ');
+  }
+
+  function medianOfObservations(values) {
+    var ordered = values.filter(function (value) {
+      return typeof value === 'number' && Number.isFinite(value);
+    }).sort(function (first, second) { return first - second; });
+    if (!ordered.length) return null;
+    var center = Math.floor(ordered.length / 2);
+    return ordered.length % 2 ? ordered[center] :
+      (ordered[center - 1] + ordered[center]) / 2;
+  }
+
+  function headerStatistics() {
+    var watchlistNames = new Set(DATA.watchlist_slugs || []);
+    var watchlistTvl = DATA.rows.reduce(function (sum, record) {
+      return sum + (watchlistNames.has(record.slug) ? record.tvl_usd : 0);
+    }, 0);
+    var medianMultiple = medianOfObservations(DATA.rows.map(function (record) {
+      return record.tvl_usd > 0 ? record.implied_value_usd / record.tvl_usd : null;
+    }));
+    var tokenlessCount = DATA.rows.filter(function (record) {
+      return record.mcap_usd === null && !record.gecko_id && !record.symbol;
+    }).length;
+    function statistic(title, content, description) {
+      return el('article', { class: 'radar-stat' },
+        el('span', { class: 'radar-stat-label', text: title }),
+        el('strong', { text: content }),
+        el('small', { text: description })
+      );
+    }
+    return el('section', { class: 'radar-statistics', 'aria-label': 'Board statistics' },
+      statistic('Ranked records', String(DATA.rows.length), 'Entire candidate universe on this board'),
+      statistic('Watchlist TVL', fmtUsd(watchlistTvl), 'Sum of the sealed watchlist records; may overlap'),
+      statistic('Median implied / TVL', medianMultiple === null ? 'n/a' : medianMultiple.toFixed(3) + '×', 'Row-level multiple after growth and age adjustments'),
+      statistic('Records no token', String(tokenlessCount), 'A snapshot observation, not launch eligibility')
+    );
+  }
+
+  function chainFilterControl() {
+    var uniqueNetworks = new Set();
+    DATA.rows.forEach(function (record) {
+      (record.chains || []).forEach(function (network) { uniqueNetworks.add(network); });
+    });
+    var chainSelector = el('select', { id: 'network-filter', 'aria-label': 'Filter by chain' },
+      el('option', { value: '', text: 'All chains' }),
+      Array.from(uniqueNetworks).sort().map(function (network) {
+        return el('option', {
+          value: network,
+          text: network,
+          selected: state.chain === network ? 'selected' : null
+        });
+      })
+    );
+    chainSelector.addEventListener('change', function () {
+      state.chain = chainSelector.value;
+      writeHash();
+      render();
+    });
+    return el('div', { class: 'field' },
+      el('label', { for: 'network-filter', text: 'Chain' }),
+      chainSelector
+    );
+  }
+
+  function spreadsheetSafeCell(value) {
+    var normalized = value === null || value === undefined ? '' : String(value);
+    if (/^\s*[=+@\t\r-]/.test(normalized)) normalized = "'" + normalized;
+    return '"' + normalized.replace(/"/g, '""') + '"';
+  }
+
+  function csvForVisibleRecords(records, marketContext) {
+    var columns = ['rank', 'slug', 'name', 'category', 'chains', 'tvl_usd',
+      'change_7d', 'age_days', 'implied_value_usd', 'mcap_usd', 'farm_steps'];
+    var lines = [columns.join(',')];
+    records.forEach(function (record) {
+      var cells = columns.map(function (column) {
+        var cell = record[column];
+        if (column === 'rank' && marketContext) cell = '';
+        if (column === 'implied_value_usd' && marketContext) cell = '';
+        if (Array.isArray(cell)) cell = cell.join(' | ');
+        return spreadsheetSafeCell(cell);
+      });
+      lines.push(cells.join(','));
+    });
+    return '\uFEFF' + lines.join('\r\n') + '\r\n';
+  }
+
+  function exportCurrentSelection() {
+    var marketContext = state.tab === 'live';
+    var selectedRecords = marketContext ? DATA.live : sortedRows(rows());
+    var csvDocument = csvForVisibleRecords(selectedRecords, marketContext);
+    var downloadObject = new Blob([csvDocument], { type: 'text/csv;charset=utf-8' });
+    var localAddress = URL.createObjectURL(downloadObject);
+    var downloadLink = document.createElement('a');
+    downloadLink.href = localAddress;
+    downloadLink.download = 'token-radar-' + DATA.as_of +
+      (marketContext ? '-market' : '-filtered') + '.csv';
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    downloadLink.remove();
+    window.setTimeout(function () { URL.revokeObjectURL(localAddress); }, 1000);
   }
 
   function header() {
@@ -189,16 +342,20 @@
     return el('div', { class: 'controls' },
       el('div', { class: 'field' }, el('label', { for: 'q', text: 'Search' }), search),
       el('div', { class: 'field' }, el('label', { for: 'category', text: 'Category' }), select),
+      state.tab === 'pre-token' ? chainFilterControl() : null,
       el('div', { class: 'field' }, el('span', { class: 'sub', text: 'Token status' }), el('div', { class: 'tabs' }, pre, live)),
+      el('button', { type: 'button', class: 'export-selection', text: 'Export CSV', onclick: exportCurrentSelection }),
       el('span', { class: 'count', text: state.tab === 'pre-token' ? rows().length + ' rows shown' : DATA.live.length + ' live-token protocols' })
     );
   }
 
   function sortHeader(key, label) {
+    var activePosition = state.ordering.findIndex(function (rule) { return rule.column === key; });
+    var activeRule = activePosition >= 0 ? state.ordering[activePosition] : null;
     return el('th', { scope: 'col' },
-      el('button', { type: 'button', onclick: function () { if (state.sort === key) state.dir = -state.dir; else { state.sort = key; state.dir = -1; } render(); } },
+      el('button', { type: 'button', title: 'Click to prioritize; Shift-click to add a tie-break column', onclick: function (event) { updateOrdering(key, !!event.shiftKey); render(); } },
         label,
-        state.sort === key ? el('span', { 'aria-hidden': 'true', text: state.dir < 0 ? ' v' : ' ^' }) : null
+        activeRule ? el('span', { 'aria-hidden': 'true', text: ' ' + (activePosition + 1) + (activeRule.direction < 0 ? ' ↓' : ' ↑') }) : null
       )
     );
   }
@@ -209,7 +366,7 @@
       return el('div', { class: 'panel' }, el('div', { class: 'empty' },
         el('h2', { text: 'No protocol matches that filter' }),
         el('p', { text: 'Clear the search or pick another category to see the board again.' }),
-        el('button', { class: 'button primary', type: 'button', text: 'Clear filters', onclick: function () { state.q = ''; state.category = 'all'; writeHash(); render(); } })
+        el('button', { class: 'button primary', type: 'button', text: 'Clear filters', onclick: function () { state.q = ''; state.category = 'all'; state.chain = ''; writeHash(); render(); } })
       ));
     }
     var max = list[0].implied_value_usd || 1;
@@ -296,6 +453,87 @@
   var dialog = el('dialog', { class: 'detail', id: 'detail', 'aria-labelledby': 'detail-title' });
   dialog.addEventListener('close', function () { state.selected = null; writeHash(); });
 
+  function evidenceForRecord(row) {
+    var tvlKnown = Number.isFinite(row.tvl_usd) && row.tvl_usd > 0;
+    var growthKnown = typeof row.change_7d === 'number' && Number.isFinite(row.change_7d);
+    var ageKnown = typeof row.age_days === 'number' && Number.isFinite(row.age_days) && row.age_days >= 0;
+    var completenessPoints = 30 + (tvlKnown ? 20 : 0) + (growthKnown ? 20 : 0) + (ageKnown ? 20 : 0);
+    var sizePoints = tvlKnown ? Math.min(10, Math.log10(1 + row.tvl_usd / 5000000) * 5) : 0;
+    var movementPenalty = growthKnown ? Math.min(20, Math.abs(row.change_7d) / 4) : 0;
+    var earlyListingPenalty = ageKnown && row.age_days < 90 ? 10 : 0;
+    return Math.max(0, Math.min(100,
+      Math.round(completenessPoints + sizePoints - movementPenalty - earlyListingPenalty)));
+  }
+
+  function riskLabelsForRecord(row) {
+    var labels = [];
+    if (!Number.isFinite(row.tvl_usd) || row.tvl_usd <= 0 ||
+        row.change_7d === null || !Number.isFinite(row.change_7d) ||
+        row.age_days === null || !Number.isFinite(row.age_days)) labels.push('Thin snapshot data');
+    if (row.change_7d !== null && row.change_7d <= -20) labels.push('TVL down sharply');
+    if (row.age_days !== null && row.age_days < 90) labels.push('Recently listed');
+    if (row.change_7d !== null && Math.abs(row.change_7d) >= 50) labels.push('TVL highly variable');
+    if (row.mcap_usd !== null && row.mcap_usd > 0) labels.push('Capitalization is recorded');
+    return labels;
+  }
+
+  function evidencePanel(row) {
+    var confidence = evidenceForRecord(row);
+    var labels = riskLabelsForRecord(row);
+    var heading = el('div', { class: 'evidence-heading' },
+      el('span', { text: 'Snapshot confidence' }),
+      el('b', { text: confidence + ' / 100' })
+    );
+    var meter = el('div', { class: 'confidence-track', role: 'meter',
+      'aria-label': 'Snapshot confidence', 'aria-valuemin': '0',
+      'aria-valuemax': '100', 'aria-valuenow': String(confidence) },
+      el('span', { style: 'width:' + confidence + '%' })
+    );
+    var footnote = el('small', {
+      class: 'evidence-caption',
+      text: 'Data completeness and TVL stability proxy only; this is not launch probability.'
+    });
+    var flags = labels.length ? labels.map(function (label) {
+      return el('span', { class: 'risk-flag', text: label });
+    }) : [el('span', { class: 'risk-flag quiet', text: 'No listed snapshot flag' })];
+    return el('section', { class: 'evidence-panel' },
+      heading, meter, footnote,
+      el('div', { class: 'risk-flags', 'aria-label': 'Snapshot risk indicators' }, flags)
+    );
+  }
+
+  function farmChecklist(row) {
+    var storageKey = 'fieldnote.farm.' + row.slug;
+    var completed;
+    try { completed = JSON.parse(window.localStorage.getItem(storageKey) || '[]'); }
+    catch (error) { completed = []; }
+    if (!Array.isArray(completed)) completed = [];
+    return el('ol', { class: 'steps farm-checklist' }, row.farm_steps.map(function (step, index) {
+      var at = step.indexOf(' Cost: ');
+      var action = at >= 0 ? step.slice(0, at) : step;
+      var details = at >= 0 ? step.slice(at + 1) : '';
+      var checkbox = el('input', {
+        type: 'checkbox',
+        checked: completed.indexOf(index) >= 0 ? 'checked' : null,
+        'aria-label': 'Mark farm step ' + (index + 1) + ' complete'
+      });
+      checkbox.addEventListener('change', function () {
+        var next = completed.filter(function (savedIndex) { return savedIndex !== index; });
+        if (checkbox.checked) next.push(index);
+        completed = next;
+        try { window.localStorage.setItem(storageKey, JSON.stringify(completed)); }
+        catch (error) { /* The checklist remains usable until this drawer closes. */ }
+      });
+      return el('li', { class: 'checklist-step' },
+        checkbox,
+        el('label', null,
+          el('b', { text: action }),
+          el('span', { class: 'cost', text: details })
+        )
+      );
+    }));
+  }
+
   function openDetail(slug) {
     var row = DATA.rows.filter(function (r) { return r.slug === slug; })[0];
     if (!row) return;
@@ -323,14 +561,10 @@
       ),
       el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The page recomputes this row as ' + fmtUsd(impliedOf(row, DATA.model)) + (impliedOf(row, DATA.model) === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' })
     ));
+    dialog.appendChild(evidencePanel(row));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Farm plan' }),
-      el('ol', { class: 'steps' }, steps.map(function (s) {
-        var at = s.indexOf(' Cost: ');
-        var action = at >= 0 ? s.slice(0, at) : s;
-        var tail = at >= 0 ? s.slice(at + 1) : '';
-        return el('li', null, el('b', { text: action }), el('span', { class: 'cost', text: tail }));
-      }))
+      farmChecklist(row)
     ));
     if (typeof dialog.showModal === 'function') {
       if (!dialog.open) dialog.showModal();
@@ -343,8 +577,13 @@
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
+    shell.appendChild(headerStatistics());
     shell.appendChild(lede());
     shell.appendChild(controls());
+    if (state.tab === 'pre-token') shell.appendChild(el('p', {
+      class: 'sort-explanation',
+      text: 'Sort priority: ' + orderingDescription() + '. Shift-click a column to add a tie-break.'
+    }));
     shell.appendChild(state.tab === 'pre-token' ? boardTable() : liveTable());
     if (state.tab === 'pre-token') shell.appendChild(modelPanel());
     app.appendChild(shell);
