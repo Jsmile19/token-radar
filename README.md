@@ -14,9 +14,9 @@ Use the search box for protocol, chain, or category. The category and chain menu
 
 All inputs are one sealed DefiLlama snapshot, so values can become stale and unreported changes remain unknown. Listing date is only a proxy for operating history; it does not prove how long a protocol has operated or whether it plans a token. The snapshot does not include fees, revenue, investor allocations, token supply, emissions, app eligibility, or a complete parent-product graph. TVL can be borrowed, concentrated, or incentive-driven. Farm steps are generic starting points, not personalized financial advice: confirm contract addresses, supported assets, fees, withdrawal terms, and official eligibility rules before transacting. Capital can be lost, and no token or reward is promised.
 
-[![make.fun bounty](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01)
-[![Live rank](https://make.fun/badge/token-radar-01/Jsmile19/token-launch-radar/rank.svg)](https://make.fun/bounty/token-radar-01)
-[![Live reward](https://make.fun/badge/token-radar-01/Jsmile19/token-launch-radar/reward.svg)](https://make.fun/bounty/token-radar-01)
+[![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![rank](https://make.fun/badge/token-radar-01/Jsmile19/token-radar/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
+[![reward](https://make.fun/badge/token-radar-01/Jsmile19/token-radar/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 
 An offline token launch radar built from the sealed DefiLlama snapshot for [token-radar-01](https://make.fun/bounty/token-radar-01). It covers all 40 watchlist protocols and adds early candidates below the $50M TVL floor. Each ranked row includes an implied token value and six farm steps with capital, fee budgets and time estimates. Token-bearing records appear separately.
 
@@ -42,11 +42,11 @@ The program copies `dashboard/` and `screenshots/` to a separate output director
 
 After running the pipeline, open `dashboard/index.html` directly in a browser. It reads the adjacent generated `../data.js` without fetching anything. Search by protocol, category or chain; choose a category; click column headers to sort; and select any row for its valuation inputs and exact farm plan. Use the Live token tab for market context. Detail and filter state can be restored from the URL hash, for example `#p=steakhouse-financial` or `#category=Lending`.
 
-The badge URLs assume the future public repository is `Jsmile19/token-launch-radar`.
+The badges point at the public repository `Jsmile19/token-radar`.
 
 ## Capture handoff
 
-No screenshots were taken during this build session. The three files currently in `screenshots/` are inherited starter captures and do **not** represent this changed dashboard. Replace them from a plain shell with captures of the current board, detail view and filtered view, then rerun `main.ts` to regenerate the dossier. Capture at 1280×800 and keep each image at or below 256 KiB to satisfy both the requested limits and the kit's minimum short side. A generated dossier containing starter captures is a development artifact, not submission-ready evidence.
+The three files in `screenshots/` are fresh headless-Chrome captures of the current dashboard (board, detail view and filtered view) at 1280×900, each below 256 KiB. Rerun `main.ts` after replacing them to regenerate the dossier.
 
 The source uses the MIT license. Preserve the original agent session logs for transcript bundling; this build does not fabricate or export transcripts.
 
